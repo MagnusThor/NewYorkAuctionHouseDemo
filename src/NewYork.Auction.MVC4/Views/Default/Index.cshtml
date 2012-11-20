@@ -1,0 +1,285 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>New York - Auction House - A demo by Team XSockets.NET</title>
+    <meta charset="utf-8">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="viewport" content="width=device-width, minimum-scale=1, maximum-scale=1">
+    <script type="text/javascript" src="/Scripts/jquery-1.8.1.js"></script>
+  
+    <script src="/Scripts/json2.js"></script>
+    <script src="/Scripts/jXSockets.fallback.2.0.0.js"></script>
+    <script src="/Scripts/jXSockets.2.0.3.min.js"></script>
+    <script type="text/javascript" src="/Scripts/bootstrap.min.js"></script>
+    <script type="text/javascript" src="/Scripts/knockout-2.1.0.js"></script>
+    <link rel="stylesheet" type="text/css" href="/Content/bootstrap.min.css" />
+    <link rel="stylesheet" type="text/css" href="/Content/bootstrap-responsive.min.css" />
+    <script>
+        jQuery.fn.highlight = function () {
+            $(this).each(function () {
+                var el = $(this);
+                $("<div/>")
+                    .width(el.outerWidth())
+                    .height(el.outerHeight())
+                    .css({
+                        "position": "absolute",
+                        "left": el.offset().left,
+                        "top": el.offset().top,
+                        "background-color": "#ffff99",
+                        "opacity": ".7",
+                        "z-index": "9999999"
+                    }).appendTo('body').fadeOut(1000).queue(function () { $(this).remove(); });
+            });
+        }
+    </script>
+
+    <script type="text/javascript">
+        // You may need to apply for a API key of your own, this API is trusted to run on the following host ; http://localhost:21661/
+        // Visit live.xsockets.net and register for our own api-key
+        // Study the API of XSockets.NET on http://xsockets.net or shot an email to contact@xsockets.net
+        var apiKey = "905c9fac-cf59-4a68-8e48-c96dd831da3e";
+        var service = "ws://xsocketslive.cloudapp.net:10101/XSockets.Live.Realtime.API";
+        var handler = "XSockets.Live.Realtime.API";
+        var settings = {
+            parameters: {
+                apikey: apiKey
+            }
+        };
+        var auctionViewModel, realtime;
+        var AuctionViewModel = function () {
+            var self = this;
+            this.Auctions = ko.observableArray([]);
+            this.getAuction = function (id) {
+                var match = ko.utils.arrayFirst(self.Auctions(), function (item) {
+                    return item.Id === id;
+                });
+                if (!match) return null;
+                else return match;
+            };
+        };
+        var Auction = function (id, caption, description, price, latestbid, bids) {
+            this.Id = id;
+            this.Caption = ko.observable(caption);
+            this.Description = ko.observable(description);
+            this.Price = ko.observable(price);
+            this.LatestBid = ko.observable(latestbid);
+            this.Bids = bids;
+            this.NumOfBids = ko.observable(bids.length);
+        };
+        var getAuctions = function () {
+            $("#auctionList").empty();
+            $.getJSON("/Default/All").done(function (result) {
+                result.forEach(function (item) {
+                    auctionViewModel.Auctions.push(new Auction(item.Id, item.Caption, item.Description, item.Price, item.LatestBid, item.Bids));
+                });
+            });
+        };
+        $(function () {
+            auctionViewModel = new AuctionViewModel();
+            // 1. 
+            realtime = new XSockets.WebSocket(service, handler, settings);
+            // 3. 
+            realtime.bind("auction", function (item) {
+                auctionViewModel.Auctions.push(new Auction(item.Id, item.Caption, item.Description, item.Price, item.LatestBid, item.Bids));
+                auctionViewModel.Auctions.reverse();
+            });
+            // 5
+            realtime.bind("bid", function (a) {
+                $("[rel='" + a.Id + "']").highlight();
+                var auction = auctionViewModel.getAuction(a.Id);
+                auction.LatestBid(a.LatestBid);
+                auction.Bids = a.Bids;
+                auction.NumOfBids(a.Bids.length);
+            });
+            $("#createAuction").bind("click", function (evt) {
+                evt.preventDefault();
+                var auction = new Auction(0, $("#caption").val(), $("#description").val(), $("#price").val(), 0, []);
+                $.post("/Default/AddAuctinon", ko.toJS(auction)).done(function (result) {
+                    // 2. realtime 
+                    realtime.trigger("auction", result);
+                    //getAuctions();  // User has added a new auctions, lets refresh the list..
+                    location.href = "#list";
+                });
+            });
+            $("#placeBid").bind("click", function () {
+                var bid = {
+                    AuctionId: $("#bidModal").data("auction").Id,
+                    Amount: $("#amout").val(),
+                    NickName: $("#nickName").val()
+                };
+                $.post("/Default/PlaceBid", bid).done(function (result) {
+                    // 4. Add the trigger for bids
+                    realtime.trigger("bid", result);
+                    //getAuctions();
+                    location.href = "#list";
+                    $("#bidModal").modal("hide");
+                });
+            });
+            $("#refresh").bind("click", function () {
+                getAuctions(); // User hits refresh, load the "auctions"
+            });
+            ko.applyBindings();
+            getAuctions(); // Load the auctions once
+        });
+        function placeBid(args) {
+            var auction = ko.toJS(args);
+            $("#bidModal h3").text(auction.Caption);
+            if (auction.Bids.length > 0) {
+                var lowestBid = auction.Bids[auction.Bids.length - 1].Amount + 1;
+                $("#amout").attr("min", lowestBid).val(lowestBid);
+            }
+            else {
+                $("#amout").attr("min", auction.Price + 1).val(auction.Price + 1);
+            }
+            $("#bidModal").data("auction", auction).modal("show");
+        };
+
+    </script>
+</head>
+<body>
+    <div class="navbar navbar-inverse navbar-fixed-top">
+        <div class="navbar-inner">
+            <div class="container">
+                <button type="button" class="btn btn-navbar" data-toggle="collapse" data-target=".nav-collapse">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="brand" href="/Default" style="color: #f60">New York Auction House</a>
+                <div class="nav-collapse collapse">
+                    <ul class="nav">
+                        <li class="">
+                            <a href="#list">
+                                <i class="icon-white icon-tasks"></i>
+                                
+                                Auctions
+                            </a>
+                        </li>
+                        <li class="">
+                            <a href="#createForm">
+                                <i class="icon-white icon-pencil"></i>
+                                Create auction
+                            </a>
+                        </li>
+
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+
+    <div class="container hidden-phone hidden-tablet" style="margin-top: 40px">
+        <div class="row">
+            <div class="span12">&nbsp;</div>
+
+        </div>
+    </div>
+
+    <div class="container">
+
+        <div class="row" id="list">
+            <div class="span12">
+                <h2>Auctions&nbsp;<small>Click to <span class="badge badge-warning" id="refresh">refresh </span></small></h2>
+                <ul class="nav nav-tabs nav-stacked" id="auctionList" data-bind="foreach: auctionViewModel.Auctions">
+                    <li data-bind="attr:{rel:Id}">
+                        <a href="#" data-bind="click: function(){placeBid($data);}">
+                            <div><strong data-bind="text:Caption"></strong></div>
+                            <span class="badge badge-success pull-right" data-bind="text:NumOfBids"></span>
+                            <p data-bind="text:Description">
+                            </p>
+                            <p>
+                                Price  $
+                                <span data-bind="text: Price"></span>( $<span data-bind="text:LatestBid"> </span>)
+                            </p>
+                        </a>
+                    </li>
+                </ul>
+
+
+            </div>
+
+        </div>
+
+
+
+
+
+
+        <div class="row">
+            <div class="span12">&nbsp;</div>
+        </div>
+
+        <div class="row" id="createForm">
+            <div class="span12">
+                <div class="well well-large">
+                    <fieldset class="form-horizontal">
+                        <legend>Create an new auction</legend>
+                        <div class="control-group">
+                            <label class="control-label" for="caption">Caption</label>
+                            <div class="controls">
+                                <input type="text" id="caption" value="Volvo 740 GL" placeholder="Caption..." class="input-xxlarge">
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label" for="description">Description</label>
+                            <div class="controls">
+                                <textarea id="description" placeholder="Description...." class="input-xxlarge">An old and golden, classic Volvo...</textarea>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <label class="control-label" for="description">Price</label>
+                            <div class="controls">
+                                <input type="number" min="100" max="1000000" id="price" value="1" />
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <div class="controls">
+                                <button
+                                    type="button" class="btn btn-success btn-primary" id="createAuction">
+                                    Create auction..</button>
+                            </div>
+                        </div>
+                    </fieldset>
+
+
+
+
+                </div>
+
+            </div>
+        </div>
+
+    </div>
+
+
+
+    <div class="modal hide" id="bidModal">
+        <div class="modal-header">
+            <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+            <h3>Modal header</h3>
+        </div>
+        <div class="modal-body">
+            <div class="control-group">
+                <label class="control-label" for="nickName">Name:</label>
+                <div class="controls">
+                    <input type="text" id="nickName" placeholder="Your name.." value="Sara Smith">
+                </div>
+            </div>
+            <div class="control-group">
+                <label class="control-label" for="nickName">Bid:</label>
+                <div class="controls">
+                    <input type="number" id="amout">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <a href="#" class="btn" data-dismiss="modal">Close</a>
+            <a href="#" class="btn btn-primary" id="placeBid">Place bid</a>
+        </div>
+    </div>
+
+</body>
+</html>
